@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { Shield, Trash2, Edit3, Users, RefreshCw } from "lucide-react";
@@ -18,23 +17,14 @@ interface UserProfile {
 
 const Admin = () => {
   const { user, isAdmin, loading } = useAuth();
-  const { t } = useLanguage();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editPoints, setEditPoints] = useState<number>(0);
 
-  if (loading) return <div className="container py-10 text-center text-muted-foreground">Loading...</div>;
-  if (!user || !isAdmin) return <Navigate to="/" replace />;
-
   const fetchUsers = async () => {
     setLoadingUsers(true);
     try {
-      const { data, error } = await supabase.functions.invoke("admin", {
-        body: null,
-        headers: {},
-      });
-      // Use GET with query params
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin?action=users`,
         {
@@ -56,8 +46,11 @@ const Admin = () => {
   };
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (user && isAdmin) fetchUsers();
+  }, [user, isAdmin]);
+
+  if (loading) return <div className="container py-10 text-center text-muted-foreground">Loading...</div>;
+  if (!user || !isAdmin) return <Navigate to="/" replace />;
 
   const updatePoints = async (targetUserId: string, points: number) => {
     try {
@@ -123,7 +116,6 @@ const Admin = () => {
           </button>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-8">
           <div className="neon-card rounded-xl p-4 text-center">
             <Users className="w-5 h-5 text-primary mx-auto mb-2" />
@@ -144,7 +136,6 @@ const Admin = () => {
           </div>
         </div>
 
-        {/* Users table */}
         <div className="neon-card rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -192,10 +183,7 @@ const Admin = () => {
                     <td className="p-4 text-right">
                       <div className="flex items-center gap-1 justify-end">
                         <button
-                          onClick={() => {
-                            setEditingUser(u.user_id);
-                            setEditPoints(u.green_points);
-                          }}
+                          onClick={() => { setEditingUser(u.user_id); setEditPoints(u.green_points); }}
                           className="p-2 rounded-lg hover:bg-secondary transition-colors"
                           title="Edit points"
                         >
