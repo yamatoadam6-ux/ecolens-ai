@@ -1,6 +1,6 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { motion } from "framer-motion";
-import { Leaf, Camera, Award, Globe2, Target, Users } from "lucide-react";
+import { Leaf, Camera, Award, Globe2, Target, Users, User } from "lucide-react";
 
 const About = () => {
   const { t } = useLanguage();
@@ -20,6 +20,19 @@ const About = () => {
             {t("about.title")}
           </h1>
         </div>
+
+        {/* Developer Card */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+          className="neon-card rounded-2xl p-8 mb-8 text-center border-primary/30"
+        >
+          <User className="w-10 h-10 text-primary mx-auto mb-3" />
+          <h2 className="font-display text-lg font-bold text-primary mb-2">{t("about.developer")}</h2>
+          <p className="font-display text-base font-bold mb-1">Adam Ahmed Saad Al-Hakim</p>
+          <p className="text-sm text-muted-foreground">Grade 9-A | Al Shola Private School</p>
+        </motion.div>
 
         {/* Mission */}
         <div className="neon-card rounded-2xl p-8 mb-8">

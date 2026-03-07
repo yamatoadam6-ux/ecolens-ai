@@ -61,7 +61,7 @@ const Leaderboard = () => {
         {loading ? (
           <div className="text-center py-12 text-muted-foreground">Loading...</div>
         ) : leaders.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">No eco-heroes yet. Be the first!</div>
+          <div className="text-center py-12 text-muted-foreground">{t("leaderboard.empty")}</div>
         ) : (
           <div className="space-y-2">
             {leaders.map((leader, i) => (

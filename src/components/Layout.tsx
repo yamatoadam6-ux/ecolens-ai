@@ -11,9 +11,11 @@ const navItems = [
   { path: "/scanner", labelKey: "nav.scanner", icon: Camera },
   { path: "/leaderboard", labelKey: "nav.leaderboard", icon: Trophy },
   { path: "/dashboard", labelKey: "nav.dashboard", icon: BarChart3 },
-  { path: "/eco-locator", label: "Eco-Locator", icon: MapPin },
+  { path: "/eco-locator", labelKey: "nav.ecolocator", icon: MapPin },
   { path: "/about", labelKey: "nav.about", icon: Info },
 ];
+
+const CREATOR = "Adam Ahmed Saad Al-Hakim | Grade 9-A | Al Shola Private School";
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { t, toggleLang, lang, dir } = useLanguage();
@@ -25,7 +27,14 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   return (
     <div dir={dir} className="min-h-screen flex flex-col bg-background font-body">
       <header className="sticky top-0 z-50 glass border-b border-border">
-        <div className="container flex items-center justify-between h-16">
+        {/* Creator banner */}
+        <div className="bg-primary/10 border-b border-primary/20 py-1">
+          <p className="text-center text-[10px] md:text-xs font-display text-primary tracking-wide">
+            {t("footer.developer")}
+          </p>
+        </div>
+
+        <div className="container flex items-center justify-between h-14">
           <Link to="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Camera className="w-4 h-4 text-primary-foreground" />
@@ -45,7 +54,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                   }`}
                 >
                   <item.icon className="w-3.5 h-3.5" />
-                  {item.labelKey ? t(item.labelKey) : item.label}
+                  {t(item.labelKey)}
                 </Link>
               );
             })}
@@ -78,7 +87,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             ) : (
               <Link to="/auth" className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground neon-button">
                 <LogIn className="w-3.5 h-3.5" />
-                Sign In
+                {t("dashboard.signIn")}
               </Link>
             )}
 
@@ -109,7 +118,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                       }`}
                     >
                       <item.icon className="w-4 h-4" />
-                      {item.labelKey ? t(item.labelKey) : item.label}
+                      {t(item.labelKey)}
                     </Link>
                   );
                 })}
@@ -122,12 +131,12 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                 {user ? (
                   <button onClick={() => { signOut(); setMobileOpen(false); }} className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary">
                     <LogOut className="w-4 h-4" />
-                    Sign Out
+                    {lang === "ar" ? "تسجيل الخروج" : "Sign Out"}
                   </button>
                 ) : (
                   <Link to="/auth" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-primary">
                     <LogIn className="w-4 h-4" />
-                    Sign In
+                    {t("dashboard.signIn")}
                   </Link>
                 )}
               </div>
@@ -139,8 +148,13 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <main className="flex-1">{children}</main>
 
       <footer className="border-t border-border py-6">
-        <div className="container text-center text-xs text-muted-foreground">
-          © 2026 EcoLens AI. {t("footer.rights")}
+        <div className="container text-center space-y-2">
+          <p className="text-xs font-display text-primary">
+            {t("footer.developer")}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            © 2026 EcoLens AI. {t("footer.rights")}
+          </p>
         </div>
       </footer>
     </div>

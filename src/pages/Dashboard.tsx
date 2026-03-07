@@ -7,23 +7,22 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 const badges = [
-  { name: "First Scan", icon: "🎯", threshold: 1, desc: "Complete your first scan" },
-  { name: "Recycle King", icon: "👑", threshold: 25, desc: "Scan 25 items" },
-  { name: "Earth Protector", icon: "🛡️", threshold: 100, desc: "Scan 100 items" },
-  { name: "Eco Legend", icon: "🏆", threshold: 500, desc: "Reach 500 scans" },
-  { name: "Green Streak", icon: "🔥", threshold: 50, desc: "Scan 50 items" },
-  { name: "Planet Savior", icon: "🌍", threshold: 200, desc: "Scan 200 items" },
+  { nameEn: "First Scan", nameAr: "أول مسح", icon: "🎯", threshold: 1, descEn: "Complete your first scan", descAr: "أكمل أول عملية مسح" },
+  { nameEn: "Recycle King", nameAr: "ملك إعادة التدوير", icon: "👑", threshold: 25, descEn: "Scan 25 items", descAr: "امسح 25 عنصراً" },
+  { nameEn: "Green Streak", nameAr: "السلسلة الخضراء", icon: "🔥", threshold: 50, descEn: "Scan 50 items", descAr: "امسح 50 عنصراً" },
+  { nameEn: "Earth Protector", nameAr: "حامي الأرض", icon: "🛡️", threshold: 100, descEn: "Scan 100 items", descAr: "امسح 100 عنصر" },
+  { nameEn: "Planet Savior", nameAr: "منقذ الكوكب", icon: "🌍", threshold: 200, descEn: "Scan 200 items", descAr: "امسح 200 عنصر" },
+  { nameEn: "Eco Legend", nameAr: "أسطورة البيئة", icon: "🏆", threshold: 500, descEn: "Reach 500 scans", descAr: "بلغ 500 عملية مسح" },
 ];
 
 const Dashboard = () => {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { user, profile, refreshProfile } = useAuth();
   const [rank, setRank] = useState<number | null>(null);
 
   useEffect(() => {
     if (user) {
       refreshProfile();
-      // Get rank
       supabase
         .from("profiles")
         .select("user_id")
@@ -47,7 +46,7 @@ const Dashboard = () => {
           className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button"
         >
           <LogIn className="w-4 h-4" />
-          Sign In
+          {t("dashboard.signIn")}
         </Link>
       </div>
     );
@@ -95,7 +94,7 @@ const Dashboard = () => {
             const earned = (profile?.total_scans ?? 0) >= badge.threshold;
             return (
               <motion.div
-                key={badge.name}
+                key={badge.nameEn}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.2 + i * 0.05 }}
@@ -104,8 +103,8 @@ const Dashboard = () => {
                 }`}
               >
                 <div className="text-4xl mb-2">{badge.icon}</div>
-                <div className="font-display text-xs font-bold mb-1">{badge.name}</div>
-                <div className="text-xs text-muted-foreground">{badge.desc}</div>
+                <div className="font-display text-xs font-bold mb-1">{lang === "ar" ? badge.nameAr : badge.nameEn}</div>
+                <div className="text-xs text-muted-foreground">{lang === "ar" ? badge.descAr : badge.descEn}</div>
               </motion.div>
             );
           })}
