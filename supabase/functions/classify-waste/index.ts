@@ -27,22 +27,18 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-2.5-flash-lite",
         messages: [
           {
             role: "system",
-            content: `You are an AI waste classification expert. Analyze the image and classify the waste item into exactly ONE category: Plastic, Paper, Metal, or Glass. 
-            
-            Respond with ONLY a JSON object in this exact format (no markdown, no code blocks):
-            {"category": "Plastic|Paper|Metal|Glass", "confidence": 85, "details": "Brief description of what you see"}
-            
-            If you cannot identify a recyclable item, respond with:
-            {"category": "Unknown", "confidence": 0, "details": "Could not identify a recyclable item"}`,
+            content: `You are a waste classification AI. Classify the item in the image into ONE category: Plastic, Paper, Metal, or Glass.
+Respond ONLY with a JSON object (no markdown): {"category":"Plastic|Paper|Metal|Glass","confidence":85,"details":"Brief description"}
+If no recyclable item is visible: {"category":"Unknown","confidence":0,"details":"No recyclable item found"}`,
           },
           {
             role: "user",
             content: [
-              { type: "text", text: "Classify this waste item into Plastic, Paper, Metal, or Glass." },
+              { type: "text", text: "Classify this waste item." },
               { type: "image_url", image_url: { url: image } },
             ],
           },
@@ -53,14 +49,12 @@ serve(async (req) => {
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 402) {
         return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const text = await response.text();
@@ -73,7 +67,6 @@ serve(async (req) => {
 
     let result;
     try {
-      // Strip markdown code blocks if present
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       result = JSON.parse(cleaned);
     } catch {
@@ -86,8 +79,7 @@ serve(async (req) => {
   } catch (e) {
     console.error("classify-waste error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

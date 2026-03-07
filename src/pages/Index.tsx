@@ -10,12 +10,7 @@ const categories = [
   { name: "Glass", icon: "🫙", color: "from-emerald-500/20 to-emerald-600/5" },
 ];
 
-const tips = [
-  "Rinse containers before recycling to avoid contamination.",
-  "One contaminated item can ruin an entire batch of recyclables.",
-  "Aluminum cans can be recycled indefinitely without losing quality.",
-  "Glass takes over 1 million years to decompose in a landfill.",
-];
+const tipKeys = ["tip.1", "tip.2", "tip.3", "tip.4", "tip.5", "tip.6", "tip.7", "tip.8"];
 
 const Index = () => {
   const { t } = useLanguage();
@@ -93,16 +88,16 @@ const Index = () => {
             {t("tips.title")}
           </h2>
           <div className="grid md:grid-cols-2 gap-4 max-w-3xl mx-auto">
-            {tips.map((tip, i) => (
+            {tipKeys.map((key, i) => (
               <motion.div
-                key={i}
+                key={key}
                 initial={{ opacity: 0, x: i % 2 === 0 ? -20 : 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.3 + i * 0.1 }}
                 className="neon-card rounded-xl p-5 flex items-start gap-3"
               >
                 <Recycle className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-muted-foreground leading-relaxed">{tip}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{t(key)}</p>
               </motion.div>
             ))}
           </div>

@@ -2,7 +2,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
-import { Camera, ScanLine, AlertCircle, LogIn } from "lucide-react";
+import { Camera, ScanLine, AlertCircle, LogIn, ImagePlus } from "lucide-react";
 import { useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
@@ -12,14 +12,17 @@ const Scanner = () => {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<{ category: string; confidence: number; details?: string } | null>(null);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
   const startCamera = useCallback(async () => {
     try {
       setError(null);
+      setPreviewSrc(null);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
       });
@@ -41,15 +44,7 @@ const Scanner = () => {
     }
   }, []);
 
-  const capture = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0);
-
-    const imageData = canvas.toDataURL("image/jpeg", 0.8);
-
+  const analyzeImage = useCallback(async (imageData: string) => {
     setAnalyzing(true);
     setResult(null);
 
@@ -75,7 +70,6 @@ const Scanner = () => {
       const data = await response.json();
       setResult(data);
 
-      // Save scan to history if logged in and valid category
       if (user && data.category && data.category !== "Unknown") {
         const co2Map: Record<string, number> = { Plastic: 0.3, Paper: 0.2, Metal: 0.5, Glass: 0.25 };
         const pointsMap: Record<string, number> = { Plastic: 10, Paper: 8, Metal: 15, Glass: 12 };
@@ -90,7 +84,6 @@ const Scanner = () => {
           points_earned: points,
         });
 
-        // Update profile stats
         const { data: profile } = await supabase
           .from("profiles")
           .select("green_points, total_scans, co2_saved")
@@ -115,6 +108,36 @@ const Scanner = () => {
     }
   }, [user]);
 
+  const capture = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0);
+    const imageData = canvas.toDataURL("image/jpeg", 0.7);
+    setPreviewSrc(imageData);
+    await analyzeImage(imageData);
+  }, [analyzeImage]);
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      setPreviewSrc(dataUrl);
+      stopCamera();
+      await analyzeImage(dataUrl);
+    };
+    reader.readAsDataURL(file);
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+  }, [analyzeImage, stopCamera]);
+
   const categoryEmoji: Record<string, string> = {
     Plastic: "♻️", Paper: "📄", Metal: "🔩", Glass: "🫙", Unknown: "❓",
   };
@@ -133,22 +156,27 @@ const Scanner = () => {
             className="flex items-center justify-center gap-2 mb-6 px-4 py-3 rounded-xl bg-secondary text-secondary-foreground text-sm"
           >
             <LogIn className="w-4 h-4" />
-            Sign in to earn Green Points
+            {t("scanner.signIn")}
           </Link>
         )}
 
         <div className="relative aspect-[4/3] rounded-2xl overflow-hidden neon-card mb-6">
-          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+          <video ref={videoRef} className={`w-full h-full object-cover ${previewSrc && !streaming ? "hidden" : ""}`} playsInline muted />
           <canvas ref={canvasRef} className="hidden" />
 
-          {!streaming && (
+          {/* Show uploaded image preview */}
+          {previewSrc && !streaming && (
+            <img src={previewSrc} alt="Preview" className="w-full h-full object-cover" />
+          )}
+
+          {!streaming && !previewSrc && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-card">
               <Camera className="w-16 h-16 text-primary/40" />
               <button
                 onClick={startCamera}
                 className="px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button"
               >
-                Open Camera
+                {t("scanner.openCamera")}
               </button>
             </div>
           )}
@@ -167,7 +195,7 @@ const Scanner = () => {
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
               <div className="text-center">
                 <div className="w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="font-display text-sm text-primary">Analyzing...</p>
+                <p className="font-display text-sm text-primary">{t("scanner.analyzing")}</p>
               </div>
             </div>
           )}
@@ -180,24 +208,54 @@ const Scanner = () => {
           </div>
         )}
 
-        {streaming && (
-          <div className="flex gap-3 mb-6">
-            <button
-              onClick={capture}
-              disabled={analyzing}
-              className="flex-1 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button disabled:opacity-50"
-            >
-              <ScanLine className="w-4 h-4 inline mr-2" />
-              {t("scanner.capture")}
-            </button>
-            <button
-              onClick={() => { stopCamera(); setResult(null); }}
-              className="px-6 py-3 rounded-xl bg-secondary text-secondary-foreground font-display font-bold text-sm"
-            >
-              Stop
-            </button>
-          </div>
-        )}
+        {/* Action buttons */}
+        <div className="flex gap-3 mb-6">
+          {streaming ? (
+            <>
+              <button
+                onClick={capture}
+                disabled={analyzing}
+                className="flex-1 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button disabled:opacity-50"
+              >
+                <ScanLine className="w-4 h-4 inline mr-2" />
+                {t("scanner.capture")}
+              </button>
+              <button
+                onClick={() => { stopCamera(); setResult(null); setPreviewSrc(null); }}
+                className="px-6 py-3 rounded-xl bg-secondary text-secondary-foreground font-display font-bold text-sm"
+              >
+                {t("scanner.stop")}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={startCamera}
+                disabled={analyzing}
+                className="flex-1 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button disabled:opacity-50"
+              >
+                <Camera className="w-4 h-4 inline mr-2" />
+                {t("scanner.openCamera")}
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={analyzing}
+                className="flex-1 px-6 py-3 rounded-xl bg-secondary text-secondary-foreground font-display font-bold text-sm hover:bg-secondary/80 transition-colors disabled:opacity-50"
+              >
+                <ImagePlus className="w-4 h-4 inline mr-2" />
+                {t("scanner.upload")}
+              </button>
+            </>
+          )}
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileUpload}
+        />
 
         {result && (
           <motion.div
@@ -208,7 +266,7 @@ const Scanner = () => {
             <div className="text-5xl mb-3">{categoryEmoji[result.category] || "❓"}</div>
             <h3 className="font-display text-2xl font-bold text-primary mb-1">{result.category}</h3>
             <p className="text-muted-foreground text-sm mb-1">
-              Confidence: {result.confidence}%
+              {t("scanner.confidence")}: {result.confidence}%
             </p>
             {result.details && (
               <p className="text-xs text-muted-foreground mb-3">{result.details}</p>

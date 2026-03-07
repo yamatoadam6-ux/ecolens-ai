@@ -1,7 +1,7 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { motion } from "framer-motion";
 import { MapPin, Navigation, Phone, Clock, ExternalLink } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 interface RecyclingCenter {
@@ -99,13 +99,14 @@ const EcoLocator = () => {
         setUserLocation(loc);
         const sorted = recyclingCenters
           .map((c) => ({ ...c, distance: haversineDistance(loc.lat, loc.lng, c.lat, c.lng) }))
-          .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+          .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))
+          .slice(0, 5);
         setCenters(sorted);
         setLocating(false);
-        toast.success("Location found! Showing nearest centers.");
+        toast.success(t("locator.found"));
       },
-      (err) => {
-        toast.error("Could not get your location. Showing all centers.");
+      () => {
+        toast.error(t("locator.error"));
         setLocating(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }
@@ -125,12 +126,10 @@ const EcoLocator = () => {
         <div className="text-center mb-8">
           <MapPin className="w-12 h-12 text-primary mx-auto mb-4 animate-float" />
           <h1 className="font-display text-3xl font-bold gradient-text mb-2">
-            {lang === "ar" ? "محدد المواقع البيئية" : "Eco-Locator"}
+            {t("locator.title")}
           </h1>
           <p className="text-muted-foreground text-sm mb-6">
-            {lang === "ar"
-              ? "اعثر على أقرب مراكز إعادة التدوير في الشارقة والإمارات"
-              : "Find nearest recycling centers in Sharjah & UAE"}
+            {t("locator.subtitle")}
           </p>
 
           <button
@@ -139,9 +138,7 @@ const EcoLocator = () => {
             className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button disabled:opacity-50"
           >
             <Navigation className={`w-4 h-4 ${locating ? "animate-spin" : ""}`} />
-            {locating
-              ? lang === "ar" ? "جاري تحديد الموقع..." : "Locating..."
-              : lang === "ar" ? "استخدم موقعي" : "Use My Location"}
+            {locating ? t("locator.locating") : t("locator.useLocation")}
           </button>
         </div>
 
@@ -208,13 +205,13 @@ const EcoLocator = () => {
                   ))}
                 </div>
                 <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${center.lat},${center.lng}`}
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${center.lat},${center.lng}${userLocation ? `&origin=${userLocation.lat},${userLocation.lng}` : ""}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-xs text-primary hover:underline"
                 >
                   <ExternalLink className="w-3 h-3" />
-                  {lang === "ar" ? "الاتجاهات" : "Directions"}
+                  {t("locator.directions")}
                 </a>
               </div>
             </motion.div>
