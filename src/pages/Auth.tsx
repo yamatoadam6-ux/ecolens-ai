@@ -7,8 +7,13 @@ import { LogIn, UserPlus, Mail, Lock, User } from "lucide-react";
 import { toast } from "sonner";
 
 const Auth = () => {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, user } = useAuth();
   const { t } = useLanguage();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) navigate("/", { replace: true });
+  }, [user, navigate]);
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
