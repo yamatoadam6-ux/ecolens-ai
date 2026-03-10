@@ -28,17 +28,13 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash-lite",
+        max_tokens: 100,
+        temperature: 0,
         messages: [
-          {
-            role: "system",
-            content: `You are a waste classification AI. Classify the item in the image into ONE category: Plastic, Paper, Metal, or Glass.
-Respond ONLY with a JSON object (no markdown): {"category":"Plastic|Paper|Metal|Glass","confidence":85,"details":"Brief description"}
-If no recyclable item is visible: {"category":"Unknown","confidence":0,"details":"No recyclable item found"}`,
-          },
           {
             role: "user",
             content: [
-              { type: "text", text: "Classify this waste item." },
+              { type: "text", text: "Classify this waste item into exactly ONE category: Plastic, Paper, Metal, or Glass. Respond ONLY with JSON (no markdown): {\"category\":\"...\",\"confidence\":85,\"details\":\"brief\"}" },
               { type: "image_url", image_url: { url: image } },
             ],
           },

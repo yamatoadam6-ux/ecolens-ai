@@ -1,11 +1,17 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { motion } from "framer-motion";
-import { Camera, ScanLine, AlertCircle, LogIn, ImagePlus } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Camera, ScanLine, AlertCircle, LogIn, ImagePlus, SwitchCamera } from "lucide-react";
 import { useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
+
+const co2Map: Record<string, number> = { Plastic: 0.3, Paper: 0.2, Metal: 0.5, Glass: 0.25 };
+const pointsMap: Record<string, number> = { Plastic: 10, Paper: 8, Metal: 15, Glass: 12 };
+const categoryEmoji: Record<string, string> = {
+  Plastic: "♻️", Paper: "📄", Metal: "🔩", Glass: "🫙", Unknown: "❓",
+};
 
 const Scanner = () => {
   const { t } = useLanguage();
@@ -13,40 +19,88 @@ const Scanner = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<{ category: string; confidence: number; details?: string } | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const [pointsAwarded, setPointsAwarded] = useState<number | null>(null);
 
-  const startCamera = useCallback(async () => {
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setStreaming(false);
+  }, []);
+
+  const startCamera = useCallback(async (facing: "environment" | "user" = facingMode) => {
     try {
       setError(null);
       setPreviewSrc(null);
+      setResult(null);
+      setPointsAwarded(null);
+      // Stop any existing stream first
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
       });
+      streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        // Use loadedmetadata for fastest possible play
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
         setStreaming(true);
       }
     } catch {
       setError("Camera access denied. Please allow camera permissions and try again.");
     }
-  }, []);
+  }, [facingMode]);
 
-  const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      videoRef.current.srcObject = null;
-      setStreaming(false);
+  const switchCamera = useCallback(async () => {
+    const next = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(next);
+    await startCamera(next);
+  }, [facingMode, startCamera]);
+
+  const savePoints = useCallback(async (category: string) => {
+    if (!user || category === "Unknown") return;
+    const co2 = co2Map[category] || 0.25;
+    const points = pointsMap[category] || 10;
+
+    // Run DB operations in parallel
+    const [, { data: profile }] = await Promise.all([
+      supabase.from("scan_history").insert({
+        user_id: user.id,
+        category,
+        confidence: result?.confidence ?? 0,
+        co2_saved: co2,
+        points_earned: points,
+      }),
+      supabase.from("profiles").select("green_points, total_scans, co2_saved").eq("user_id", user.id).single(),
+    ]);
+
+    if (profile) {
+      await supabase.from("profiles").update({
+        green_points: profile.green_points + points,
+        total_scans: profile.total_scans + 1,
+        co2_saved: Number(profile.co2_saved) + co2,
+      }).eq("user_id", user.id);
     }
-  }, []);
+
+    setPointsAwarded(points);
+    toast.success(`+${points} Green Points! 🌿`);
+  }, [user, result]);
 
   const analyzeImage = useCallback(async (imageData: string) => {
     setAnalyzing(true);
     setResult(null);
+    setPointsAwarded(null);
 
     try {
       const response = await fetch(
@@ -70,35 +124,9 @@ const Scanner = () => {
       const data = await response.json();
       setResult(data);
 
+      // Save points after showing result (non-blocking)
       if (user && data.category && data.category !== "Unknown") {
-        const co2Map: Record<string, number> = { Plastic: 0.3, Paper: 0.2, Metal: 0.5, Glass: 0.25 };
-        const pointsMap: Record<string, number> = { Plastic: 10, Paper: 8, Metal: 15, Glass: 12 };
-        const co2 = co2Map[data.category] || 0.25;
-        const points = pointsMap[data.category] || 10;
-
-        await supabase.from("scan_history").insert({
-          user_id: user.id,
-          category: data.category,
-          confidence: data.confidence,
-          co2_saved: co2,
-          points_earned: points,
-        });
-
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("green_points, total_scans, co2_saved")
-          .eq("user_id", user.id)
-          .single();
-
-        if (profile) {
-          await supabase.from("profiles").update({
-            green_points: profile.green_points + points,
-            total_scans: profile.total_scans + 1,
-            co2_saved: Number(profile.co2_saved) + co2,
-          }).eq("user_id", user.id);
-        }
-
-        toast.success(`+${points} Green Points! 🌿`);
+        savePoints(data.category);
       }
     } catch (err: any) {
       toast.error(err.message || "Analysis failed");
@@ -106,17 +134,19 @@ const Scanner = () => {
     } finally {
       setAnalyzing(false);
     }
-  }, [user]);
+  }, [user, savePoints]);
 
   const capture = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0);
-    const imageData = canvas.toDataURL("image/jpeg", 0.7);
+    const video = videoRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d")?.drawImage(video, 0, 0);
+    // Use lower quality for faster transfer
+    const imageData = canvas.toDataURL("image/jpeg", 0.5);
     setPreviewSrc(imageData);
-    await analyzeImage(imageData);
+    analyzeImage(imageData);
   }, [analyzeImage]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,21 +156,28 @@ const Scanner = () => {
       toast.error("Please select an image file");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
+    // Compress via canvas for faster upload
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const maxDim = 800;
+      let w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim) {
+        const ratio = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
       setPreviewSrc(dataUrl);
       stopCamera();
-      await analyzeImage(dataUrl);
+      analyzeImage(dataUrl);
     };
-    reader.readAsDataURL(file);
-    // Reset input so same file can be re-selected
+    img.src = URL.createObjectURL(file);
     e.target.value = "";
   }, [analyzeImage, stopCamera]);
-
-  const categoryEmoji: Record<string, string> = {
-    Plastic: "♻️", Paper: "📄", Metal: "🔩", Glass: "🫙", Unknown: "❓",
-  };
 
   return (
     <div className="container py-10">
@@ -164,7 +201,6 @@ const Scanner = () => {
           <video ref={videoRef} className={`w-full h-full object-cover ${previewSrc && !streaming ? "hidden" : ""}`} playsInline muted />
           <canvas ref={canvasRef} className="hidden" />
 
-          {/* Show uploaded image preview */}
           {previewSrc && !streaming && (
             <img src={previewSrc} alt="Preview" className="w-full h-full object-cover" />
           )}
@@ -173,7 +209,7 @@ const Scanner = () => {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-card">
               <Camera className="w-16 h-16 text-primary/40" />
               <button
-                onClick={startCamera}
+                onClick={() => startCamera()}
                 className="px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button"
               >
                 {t("scanner.openCamera")}
@@ -182,13 +218,22 @@ const Scanner = () => {
           )}
 
           {streaming && (
-            <div className="absolute inset-0 pointer-events-none">
-              <div className="absolute inset-x-0 h-0.5 bg-primary/60 animate-scan" />
-              <div className="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-primary rounded-tl-lg" />
-              <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-primary rounded-tr-lg" />
-              <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-primary rounded-bl-lg" />
-              <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-primary rounded-br-lg" />
-            </div>
+            <>
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute inset-x-0 h-0.5 bg-primary/60 animate-scan" />
+                <div className="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-primary rounded-tl-lg" />
+                <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-primary rounded-tr-lg" />
+                <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-primary rounded-bl-lg" />
+                <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-primary rounded-br-lg" />
+              </div>
+              <button
+                onClick={switchCamera}
+                className="absolute top-3 right-3 p-2 rounded-full bg-background/60 backdrop-blur-sm text-foreground hover:bg-background/80 transition-colors z-10"
+                aria-label="Switch camera"
+              >
+                <SwitchCamera className="w-5 h-5" />
+              </button>
+            </>
           )}
 
           {analyzing && (
@@ -208,7 +253,6 @@ const Scanner = () => {
           </div>
         )}
 
-        {/* Action buttons */}
         <div className="flex gap-3 mb-6">
           {streaming ? (
             <>
@@ -221,7 +265,7 @@ const Scanner = () => {
                 {t("scanner.capture")}
               </button>
               <button
-                onClick={() => { stopCamera(); setResult(null); setPreviewSrc(null); }}
+                onClick={() => { stopCamera(); setResult(null); setPreviewSrc(null); setPointsAwarded(null); }}
                 className="px-6 py-3 rounded-xl bg-secondary text-secondary-foreground font-display font-bold text-sm"
               >
                 {t("scanner.stop")}
@@ -230,7 +274,7 @@ const Scanner = () => {
           ) : (
             <>
               <button
-                onClick={startCamera}
+                onClick={() => startCamera()}
                 disabled={analyzing}
                 className="flex-1 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button disabled:opacity-50"
               >
@@ -257,30 +301,53 @@ const Scanner = () => {
           onChange={handleFileUpload}
         />
 
-        {result && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="neon-card rounded-2xl p-6 text-center"
-          >
-            <div className="text-5xl mb-3">{categoryEmoji[result.category] || "❓"}</div>
-            <h3 className="font-display text-2xl font-bold text-primary mb-1">{result.category}</h3>
-            <p className="text-muted-foreground text-sm mb-1">
-              {t("scanner.confidence")}: {result.confidence}%
-            </p>
-            {result.details && (
-              <p className="text-xs text-muted-foreground mb-3">{result.details}</p>
-            )}
-            <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+        <AnimatePresence>
+          {result && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              className="neon-card rounded-2xl p-6 text-center"
+            >
               <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${result.confidence}%` }}
-                transition={{ duration: 0.8 }}
-                className="h-full bg-primary rounded-full"
-              />
-            </div>
-          </motion.div>
-        )}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.1, type: "spring", damping: 10 }}
+                className="text-5xl mb-3"
+              >
+                {categoryEmoji[result.category] || "❓"}
+              </motion.div>
+              <h3 className="font-display text-2xl font-bold text-primary mb-1">{result.category}</h3>
+              <p className="text-muted-foreground text-sm mb-1">
+                {t("scanner.confidence")}: {result.confidence}%
+              </p>
+              {result.details && (
+                <p className="text-xs text-muted-foreground mb-3">{result.details}</p>
+              )}
+              <div className="w-full bg-secondary rounded-full h-2 overflow-hidden mb-3">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${result.confidence}%` }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                  className="h-full bg-primary rounded-full"
+                />
+              </div>
+
+              <AnimatePresence>
+                {pointsAwarded && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-2 py-2 px-4 rounded-lg bg-primary/10 text-primary font-display font-bold text-sm inline-block"
+                  >
+                    🌿 +{pointsAwarded} Green Points!
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );
