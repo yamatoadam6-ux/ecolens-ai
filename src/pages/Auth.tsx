@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { LogIn, UserPlus, Mail, Lock, User } from "lucide-react";
 import { toast } from "sonner";
