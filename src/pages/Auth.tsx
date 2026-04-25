@@ -3,11 +3,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { LogIn, UserPlus, Mail, Lock, User } from "lucide-react";
+import { AlertCircle, LogIn, UserPlus, Mail, Lock, User } from "lucide-react";
 import { toast } from "sonner";
 
 const Auth = () => {
-  const { signIn, signUp, user } = useAuth();
+  const { signIn, signUp, user, authError } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
 
@@ -25,8 +25,8 @@ const Auth = () => {
     setLoading(true);
     try {
       if (isLogin) {
-        const { error } = await signIn(email, password);
-        if (error) throw error;
+        const { error, message } = await signIn(email, password);
+        if (error) throw new Error(message || error.message);
         toast.success("Welcome back!");
       } else {
         if (!displayName.trim()) {
@@ -34,8 +34,8 @@ const Auth = () => {
           setLoading(false);
           return;
         }
-        const { error } = await signUp(email, password, displayName);
-        if (error) throw error;
+        const { error, message } = await signUp(email, password, displayName);
+        if (error) throw new Error(message || error.message);
         toast.success("Account created successfully!");
       }
     } catch (err: any) {
@@ -56,6 +56,13 @@ const Auth = () => {
           <h1 className="font-display text-2xl font-bold text-center gradient-text mb-8">
             {isLogin ? "Sign In" : "Create Account"}
           </h1>
+
+          {authError && (
+            <div className="mb-4 flex items-start gap-2 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
