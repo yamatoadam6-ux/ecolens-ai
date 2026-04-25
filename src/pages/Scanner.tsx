@@ -1,6 +1,7 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { analyzeWasteImage, imageFileToCompressedDataUrl, videoFrameToCompressedDataUrl } from "@/lib/gemini";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, ScanLine, AlertCircle, LogIn, ImagePlus, SwitchCamera } from "lucide-react";
 import { useRef, useState, useCallback } from "react";
@@ -24,6 +25,7 @@ const Scanner = () => {
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [switchingCamera, setSwitchingCamera] = useState(false);
   const [result, setResult] = useState<{ category: string; confidence: number; details?: string } | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [pointsAwarded, setPointsAwarded] = useState<number | null>(null);
@@ -45,7 +47,7 @@ const Scanner = () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: facing }, width: { ideal: 960 }, height: { ideal: 720 } },
         audio: false,
       });
       streamRef.current = stream;
@@ -57,18 +59,35 @@ const Scanner = () => {
         };
         setStreaming(true);
       }
-    } catch {
-      setError("Camera access denied. Please allow camera permissions and try again.");
+    } catch (err: any) {
+      if (facing === "environment") {
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          streamRef.current = fallbackStream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream;
+            await videoRef.current.play().catch(() => undefined);
+            setStreaming(true);
+          }
+          return;
+        } catch {
+          // Continue to the clearer error below.
+        }
+      }
+      setError(err?.name === "NotAllowedError" ? "Camera permission was denied. Please allow camera access and try again." : "Camera could not start. Please close other camera apps and try again.");
     }
   }, [facingMode]);
 
   const switchCamera = useCallback(async () => {
+    if (switchingCamera) return;
+    setSwitchingCamera(true);
     const next = facingMode === "environment" ? "user" : "environment";
     setFacingMode(next);
     await startCamera(next);
-  }, [facingMode, startCamera]);
+    setSwitchingCamera(false);
+  }, [facingMode, startCamera, switchingCamera]);
 
-  const savePoints = useCallback(async (category: string) => {
+  const savePoints = useCallback(async (category: string, confidence: number) => {
     if (!user || category === "Unknown") return;
     const co2 = co2Map[category] || 0.25;
     const points = pointsMap[category] || 10;
@@ -78,7 +97,7 @@ const Scanner = () => {
       supabase.from("scan_history").insert({
         user_id: user.id,
         category,
-        confidence: result?.confidence ?? 0,
+        confidence,
         co2_saved: co2,
         points_earned: points,
       }),
@@ -95,7 +114,7 @@ const Scanner = () => {
 
     setPointsAwarded(points);
     toast.success(`+${points} Green Points! 🌿`);
-  }, [user, result]);
+  }, [user]);
 
   const analyzeImage = useCallback(async (imageData: string) => {
     setAnalyzing(true);
@@ -103,30 +122,12 @@ const Scanner = () => {
     setPointsAwarded(null);
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/classify-waste`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            ...(user ? { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` } : {}),
-          },
-          body: JSON.stringify({ image: imageData }),
-        }
-      );
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || "Classification failed");
-      }
-
-      const data = await response.json();
+      const data = await analyzeWasteImage(imageData);
       setResult(data);
 
       // Save points after showing result (non-blocking)
       if (user && data.category && data.category !== "Unknown") {
-        savePoints(data.category);
+        void savePoints(data.category, data.confidence);
       }
     } catch (err: any) {
       toast.error(err.message || "Analysis failed");
@@ -140,11 +141,7 @@ const Scanner = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const video = videoRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d")?.drawImage(video, 0, 0);
-    // Use lower quality for faster transfer
-    const imageData = canvas.toDataURL("image/jpeg", 0.5);
+    const imageData = videoFrameToCompressedDataUrl(video, canvas);
     setPreviewSrc(imageData);
     analyzeImage(imageData);
   }, [analyzeImage]);
@@ -156,26 +153,11 @@ const Scanner = () => {
       toast.error("Please select an image file");
       return;
     }
-    // Compress via canvas for faster upload
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const maxDim = 800;
-      let w = img.width, h = img.height;
-      if (w > maxDim || h > maxDim) {
-        const ratio = Math.min(maxDim / w, maxDim / h);
-        w = Math.round(w * ratio);
-        h = Math.round(h * ratio);
-      }
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+    imageFileToCompressedDataUrl(file).then((dataUrl) => {
       setPreviewSrc(dataUrl);
       stopCamera();
       analyzeImage(dataUrl);
-    };
-    img.src = URL.createObjectURL(file);
+    }).catch((err) => toast.error(err.message || "Image upload failed"));
     e.target.value = "";
   }, [analyzeImage, stopCamera]);
 
