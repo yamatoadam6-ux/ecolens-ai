@@ -10,12 +10,14 @@ serve(async (req) => {
 
   try {
     const { image } = await req.json();
-    if (!image) {
+    if (!image || typeof image !== "string" || !image.startsWith("data:image/")) {
       return new Response(JSON.stringify({ error: "No image provided" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const compactImage = image.replace(/\s/g, "");
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
@@ -28,14 +30,14 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash-lite",
-        max_tokens: 100,
+        max_tokens: 80,
         temperature: 0,
         messages: [
           {
             role: "user",
             content: [
-              { type: "text", text: "Classify this waste item into exactly ONE category: Plastic, Paper, Metal, or Glass. Respond ONLY with JSON (no markdown): {\"category\":\"...\",\"confidence\":85,\"details\":\"brief\"}" },
-              { type: "image_url", image_url: { url: image } },
+              { type: "text", text: "Waste classifier. Choose exactly one: Plastic, Paper, Metal, Glass. Return compact JSON only: {\"category\":\"Plastic\",\"confidence\":90,\"details\":\"short reason\"}" },
+              { type: "image_url", image_url: { url: compactImage } },
             ],
           },
         ],
@@ -59,12 +61,15 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    const content = data.choices?.[0]?.message?.content || "";
 
     let result;
     try {
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       result = JSON.parse(cleaned);
+      const allowed = new Set(["Plastic", "Paper", "Metal", "Glass"]);
+      if (!allowed.has(result.category)) result.category = "Unknown";
+      result.confidence = Math.max(0, Math.min(100, Number(result.confidence) || 0));
     } catch {
       result = { category: "Unknown", confidence: 0, details: content };
     }
