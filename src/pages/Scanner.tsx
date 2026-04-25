@@ -92,28 +92,36 @@ const Scanner = () => {
     const co2 = co2Map[category] || 0.25;
     const points = pointsMap[category] || 10;
 
-    // Run DB operations in parallel
-    const [, { data: profile }] = await Promise.all([
-      supabase.from("scan_history").insert({
-        user_id: user.id,
-        category,
-        confidence,
-        co2_saved: co2,
-        points_earned: points,
-      }),
-      supabase.from("profiles").select("green_points, total_scans, co2_saved").eq("user_id", user.id).single(),
-    ]);
+    try {
+      const [{ error: scanError }, { data: profile, error: profileError }] = await Promise.all([
+        supabase.from("scan_history").insert({
+          user_id: user.id,
+          category,
+          confidence,
+          co2_saved: co2,
+          points_earned: points,
+        }),
+        supabase.from("profiles").select("green_points, total_scans, co2_saved").eq("user_id", user.id).single(),
+      ]);
 
-    if (profile) {
-      await supabase.from("profiles").update({
-        green_points: profile.green_points + points,
-        total_scans: profile.total_scans + 1,
-        co2_saved: Number(profile.co2_saved) + co2,
-      }).eq("user_id", user.id);
+      if (scanError) throw scanError;
+      if (profileError) throw profileError;
+
+      if (profile) {
+        const { error: updateError } = await supabase.from("profiles").update({
+          green_points: profile.green_points + points,
+          total_scans: profile.total_scans + 1,
+          co2_saved: Number(profile.co2_saved) + co2,
+        }).eq("user_id", user.id);
+
+        if (updateError) throw updateError;
+      }
+
+      setPointsAwarded(points);
+      toast.success(`+${points} Green Points! 🌿`);
+    } catch (err: any) {
+      toast.error(err?.message || "Scan saved locally, but rewards could not update right now.");
     }
-
-    setPointsAwarded(points);
-    toast.success(`+${points} Green Points! 🌿`);
   }, [user]);
 
   const analyzeImage = useCallback(async (imageData: string) => {
