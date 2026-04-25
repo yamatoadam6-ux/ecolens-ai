@@ -7,8 +7,9 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   profile: any | null;
-  signUp: (email: string, password: string, displayName: string) => Promise<{ error: any }>;
-  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  authError: string | null;
+  signUp: (email: string, password: string, displayName: string) => Promise<{ error: any; message?: string }>;
+  signIn: (email: string, password: string) => Promise<{ error: any; message?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -20,18 +21,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [profile, setProfile] = useState<any | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const formatAuthError = (error: any) => {
+    const message = error?.message || "Authentication failed.";
+    if (message.toLowerCase().includes("failed to fetch")) {
+      return "Cannot reach the authentication server. Lovable Cloud is paused or temporarily unavailable.";
+    }
+    return message;
+  };
 
   const fetchProfile = async (userId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("user_id", userId)
       .maybeSingle();
-    setProfile(data);
+    if (error) console.error("Profile fetch failed:", error.message);
+    setProfile(data ?? null);
   };
 
   const checkAdmin = async (userId: string) => {
-    const { data } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
+    const { data, error } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
+    if (error) console.error("Admin role check failed:", error.message);
     setIsAdmin(!!data);
   };
 
@@ -43,26 +55,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const currentUser = session?.user ?? null;
+    const loadUserData = async (currentUser: User | null) => {
       setUser(currentUser);
       if (currentUser) {
-        await fetchProfile(currentUser.id);
-        await checkAdmin(currentUser.id);
+        setAuthError(null);
+        await Promise.all([fetchProfile(currentUser.id), checkAdmin(currentUser.id)]);
       } else {
         setProfile(null);
         setIsAdmin(false);
       }
       setLoading(false);
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
+      window.setTimeout(() => void loadUserData(currentUser), 0);
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) setAuthError(formatAuthError(error));
       const currentUser = session?.user ?? null;
-      setUser(currentUser);
-      if (currentUser) {
-        fetchProfile(currentUser.id);
-        checkAdmin(currentUser.id);
-      }
+      void loadUserData(currentUser);
+    }).catch((error) => {
+      setAuthError(formatAuthError(error));
       setLoading(false);
     });
 
@@ -70,17 +85,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signUp = async (email: string, password: string, displayName: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { display_name: displayName } },
-    });
-    return { error };
+    try {
+      setAuthError(null);
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { display_name: displayName }, emailRedirectTo: window.location.origin },
+      });
+      if (error) setAuthError(formatAuthError(error));
+      return { error, message: error ? formatAuthError(error) : undefined };
+    } catch (error) {
+      const message = formatAuthError(error);
+      setAuthError(message);
+      return { error, message };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    try {
+      setAuthError(null);
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setAuthError(formatAuthError(error));
+      return { error, message: error ? formatAuthError(error) : undefined };
+    } catch (error) {
+      const message = formatAuthError(error);
+      setAuthError(message);
+      return { error, message };
+    }
   };
 
   const signOut = async () => {
@@ -91,7 +122,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAdmin, profile, signUp, signIn, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, profile, authError, signUp, signIn, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
