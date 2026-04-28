@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { analyzeWasteImage, imageFileToCompressedDataUrl, videoFrameToCompressedDataUrl } from "@/lib/gemini";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, ScanLine, AlertCircle, LogIn, ImagePlus, SwitchCamera } from "lucide-react";
-import { useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 
@@ -43,23 +43,27 @@ const Scanner = () => {
       setPreviewSrc(null);
       setResult(null);
       setPointsAwarded(null);
-      // Stop any existing stream first
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Camera is not supported in this browser. Please upload an image instead.");
+      }
+
       streamRef.current?.getTracks().forEach((t) => t.stop());
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facing }, width: { ideal: 960 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Use loadedmetadata for fastest possible play
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(() => {});
-        };
+        videoRef.current.muted = true;
+        videoRef.current.playsInline = true;
+        await videoRef.current.play();
         setStreaming(true);
       }
     } catch (err: any) {
+      console.error("[EcoLens AI] Camera start failed", { name: err?.name, message: err?.message, facing });
       if (facing === "environment") {
         try {
           const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -71,10 +75,10 @@ const Scanner = () => {
           }
           return;
         } catch {
-          // Continue to the clearer error below.
+          console.error("[EcoLens AI] Camera fallback failed");
         }
       }
-      setError(err?.name === "NotAllowedError" ? "Camera permission was denied. Please allow camera access and try again." : "Camera could not start. Please close other camera apps and try again.");
+      setError(err?.name === "NotAllowedError" ? "Camera permission was denied. Please allow camera access and try again." : err?.message || "Camera could not start. Please close other camera apps and try again.");
     }
   }, [facingMode]);
 
@@ -82,10 +86,15 @@ const Scanner = () => {
     if (switchingCamera) return;
     setSwitchingCamera(true);
     const next = facingMode === "environment" ? "user" : "environment";
-    setFacingMode(next);
-    await startCamera(next);
-    setSwitchingCamera(false);
+    try {
+      setFacingMode(next);
+      await startCamera(next);
+    } finally {
+      setSwitchingCamera(false);
+    }
   }, [facingMode, startCamera, switchingCamera]);
+
+  useEffect(() => stopCamera, [stopCamera]);
 
   const savePoints = useCallback(async (category: string, confidence: number) => {
     if (!user || category === "Unknown") return;
@@ -146,13 +155,17 @@ const Scanner = () => {
   }, [user, savePoints]);
 
   const capture = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    const imageData = videoFrameToCompressedDataUrl(video, canvas);
-    setPreviewSrc(imageData);
-    analyzeImage(imageData);
-  }, [analyzeImage]);
+    if (!videoRef.current || !canvasRef.current || analyzing) return;
+    try {
+      const imageData = await videoFrameToCompressedDataUrl(videoRef.current, canvasRef.current);
+      setPreviewSrc(imageData);
+      stopCamera();
+      void analyzeImage(imageData);
+    } catch (err: any) {
+      console.error("[EcoLens AI] Capture failed", err);
+      toast.error(err?.message || "Camera capture failed. Please try again.");
+    }
+  }, [analyzeImage, analyzing, stopCamera]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -218,6 +231,7 @@ const Scanner = () => {
               </div>
               <button
                 onClick={switchCamera}
+                disabled={switchingCamera || analyzing}
                 className="absolute top-3 right-3 p-2 rounded-full bg-background/60 backdrop-blur-sm text-foreground hover:bg-background/80 transition-colors z-10"
                 aria-label="Switch camera"
               >
@@ -248,7 +262,7 @@ const Scanner = () => {
             <>
               <button
                 onClick={capture}
-                disabled={analyzing}
+                disabled={analyzing || switchingCamera}
                 className="flex-1 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button disabled:opacity-50"
               >
                 <ScanLine className="w-4 h-4 inline mr-2" />

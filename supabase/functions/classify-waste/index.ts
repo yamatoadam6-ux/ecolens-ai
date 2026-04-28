@@ -21,28 +21,43 @@ serve(async (req) => {
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 18000);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        max_tokens: 80,
-        temperature: 0,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Waste classifier. Choose exactly one: Plastic, Paper, Metal, Glass. Return compact JSON only: {\"category\":\"Plastic\",\"confidence\":90,\"details\":\"short reason\"}" },
-              { type: "image_url", image_url: { url: compactImage } },
-            ],
-          },
-        ],
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-lite",
+          max_tokens: 90,
+          temperature: 0,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Classify the visible waste item. Choose exactly one category: Plastic, Paper, Metal, Glass, Unknown. Return JSON only: {\"category\":\"Plastic\",\"confidence\":90,\"details\":\"short reason\"}" },
+                { type: "image_url", image_url: { url: compactImage } },
+              ],
+            },
+          ],
+        }),
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return new Response(JSON.stringify({ error: "AI analysis timed out. Please try a clearer photo." }), {
+          status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       if (response.status === 429) {
@@ -67,7 +82,7 @@ serve(async (req) => {
     try {
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       result = JSON.parse(cleaned);
-      const allowed = new Set(["Plastic", "Paper", "Metal", "Glass"]);
+      const allowed = new Set(["Plastic", "Paper", "Metal", "Glass", "Unknown"]);
       if (!allowed.has(result.category)) result.category = "Unknown";
       result.confidence = Math.max(0, Math.min(100, Number(result.confidence) || 0));
     } catch {

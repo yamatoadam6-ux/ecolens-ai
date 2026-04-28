@@ -8,8 +8,8 @@ interface AuthContextType {
   isAdmin: boolean;
   profile: any | null;
   authError: string | null;
-  signUp: (email: string, password: string, displayName: string) => Promise<{ error: any; message?: string }>;
-  signIn: (email: string, password: string) => Promise<{ error: any; message?: string }>;
+  signUp: (email: string, password: string, displayName: string) => Promise<{ error: any; message?: string; user?: User | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: any; message?: string; user?: User | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -25,10 +25,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const formatAuthError = (error: any) => {
     const message = error?.message || "Authentication failed.";
+    const code = error?.code || error?.name || "unknown";
+    const status = error?.status ? ` (status ${error.status})` : "";
     if (message.toLowerCase().includes("failed to fetch")) {
       return "Cannot reach the authentication server. Lovable Cloud is paused or temporarily unavailable.";
     }
-    return message;
+    if (message.toLowerCase().includes("server error")) {
+      return `Authentication server error${status}. Please resume Lovable Cloud or try again shortly.`;
+    }
+    return `${message}${code !== "unknown" ? ` [${code}]` : ""}`;
   };
 
   const fetchProfile = async (userId: string) => {
@@ -59,7 +64,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(currentUser);
       if (currentUser) {
         setAuthError(null);
-        await Promise.all([fetchProfile(currentUser.id), checkAdmin(currentUser.id)]);
+        await Promise.allSettled([fetchProfile(currentUser.id), checkAdmin(currentUser.id)]);
       } else {
         setProfile(null);
         setIsAdmin(false);
@@ -67,16 +72,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false);
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.debug("[EcoLens AI] Auth state changed", { event, hasSession: !!session, userId: session?.user?.id });
       const currentUser = session?.user ?? null;
       window.setTimeout(() => void loadUserData(currentUser), 0);
     });
 
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) setAuthError(formatAuthError(error));
+      if (error) {
+        console.error("[EcoLens AI] Session restore failed", error);
+        setAuthError(formatAuthError(error));
+      }
       const currentUser = session?.user ?? null;
       void loadUserData(currentUser);
     }).catch((error) => {
+      console.error("[EcoLens AI] Session restore network failure", error);
       setAuthError(formatAuthError(error));
       setLoading(false);
     });
@@ -87,14 +97,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signUp = async (email: string, password: string, displayName: string) => {
     try {
       setAuthError(null);
-      const { error } = await supabase.auth.signUp({
+      console.debug("[EcoLens AI] Sign up started", { email });
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { display_name: displayName }, emailRedirectTo: window.location.origin },
       });
-      if (error) setAuthError(formatAuthError(error));
-      return { error, message: error ? formatAuthError(error) : undefined };
+      if (error) {
+        console.error("[EcoLens AI] Sign up failed", error);
+        setAuthError(formatAuthError(error));
+      } else {
+        console.debug("[EcoLens AI] Sign up succeeded", { userId: data.user?.id, hasSession: !!data.session });
+        if (data.session?.user) setUser(data.session.user);
+      }
+      return { error, message: error ? formatAuthError(error) : undefined, user: data.user };
     } catch (error) {
+      console.error("[EcoLens AI] Sign up network/unexpected failure", error);
       const message = formatAuthError(error);
       setAuthError(message);
       return { error, message };
@@ -104,10 +122,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     try {
       setAuthError(null);
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setAuthError(formatAuthError(error));
-      return { error, message: error ? formatAuthError(error) : undefined };
+      console.debug("[EcoLens AI] Sign in started", { email });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        console.error("[EcoLens AI] Sign in failed", error);
+        setAuthError(formatAuthError(error));
+      } else {
+        console.debug("[EcoLens AI] Sign in succeeded", { userId: data.user?.id, hasSession: !!data.session });
+        if (data.user) setUser(data.user);
+      }
+      return { error, message: error ? formatAuthError(error) : undefined, user: data.user };
     } catch (error) {
+      console.error("[EcoLens AI] Sign in network/unexpected failure", error);
       const message = formatAuthError(error);
       setAuthError(message);
       return { error, message };
