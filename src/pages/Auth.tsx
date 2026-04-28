@@ -19,27 +19,36 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLocalError(null);
     try {
       if (isLogin) {
-        const { error, message } = await signIn(email, password);
+        console.debug("[EcoLens AI] Auth form submitting sign in", { email });
+        const { error, message, user: signedInUser } = await signIn(email.trim(), password);
         if (error) throw new Error(message || error.message);
         toast.success("Welcome back!");
+        if (signedInUser) navigate("/", { replace: true });
       } else {
         if (!displayName.trim()) {
           toast.error("Please enter a display name");
           setLoading(false);
           return;
         }
-        const { error, message } = await signUp(email, password, displayName);
+        console.debug("[EcoLens AI] Auth form submitting sign up", { email });
+        const { error, message, user: newUser } = await signUp(email.trim(), password, displayName.trim());
         if (error) throw new Error(message || error.message);
         toast.success("Account created successfully!");
+        if (newUser) navigate("/", { replace: true });
       }
     } catch (err: any) {
-      toast.error(err.message || "Authentication failed");
+      console.error("[EcoLens AI] Auth form failed", err);
+      const message = err.message || "Authentication failed";
+      setLocalError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -57,10 +66,10 @@ const Auth = () => {
             {isLogin ? "Sign In" : "Create Account"}
           </h1>
 
-          {authError && (
+          {(localError || authError) && (
             <div className="mb-4 flex items-start gap-2 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-              <span>{authError}</span>
+              <span>{localError || authError}</span>
             </div>
           )}
 
