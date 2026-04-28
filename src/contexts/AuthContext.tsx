@@ -108,7 +108,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setAuthError(formatAuthError(error));
       } else {
         console.debug("[EcoLens AI] Sign up succeeded", { userId: data.user?.id, hasSession: !!data.session });
-        if (data.user) setUser(data.user);
+        if (data.session?.user) setUser(data.session.user);
       }
       return { error, message: error ? formatAuthError(error) : undefined, user: data.user };
     } catch (error) {
