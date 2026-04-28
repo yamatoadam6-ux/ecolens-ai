@@ -78,7 +78,7 @@ const Scanner = () => {
           console.error("[EcoLens AI] Camera fallback failed");
         }
       }
-      setError(err?.message || (err?.name === "NotAllowedError" ? "Camera permission was denied. Please allow camera access and try again." : "Camera could not start. Please close other camera apps and try again."));
+      setError(err?.name === "NotAllowedError" ? "Camera permission was denied. Please allow camera access and try again." : err?.message || "Camera could not start. Please close other camera apps and try again.");
     }
   }, [facingMode]);
 
@@ -231,6 +231,7 @@ const Scanner = () => {
               </div>
               <button
                 onClick={switchCamera}
+                disabled={switchingCamera || analyzing}
                 className="absolute top-3 right-3 p-2 rounded-full bg-background/60 backdrop-blur-sm text-foreground hover:bg-background/80 transition-colors z-10"
                 aria-label="Switch camera"
               >
@@ -261,7 +262,7 @@ const Scanner = () => {
             <>
               <button
                 onClick={capture}
-                disabled={analyzing}
+                disabled={analyzing || switchingCamera}
                 className="flex-1 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-display font-bold text-sm neon-button disabled:opacity-50"
               >
                 <ScanLine className="w-4 h-4 inline mr-2" />
