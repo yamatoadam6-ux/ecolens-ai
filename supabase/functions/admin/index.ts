@@ -64,13 +64,15 @@ serve(async (req) => {
           .order("green_points", { ascending: false });
         if (error) throw error;
 
-        // Get emails from auth
         const { data: { users }, error: authError } = await adminSupabase.auth.admin.listUsers();
         if (authError) throw authError;
 
-        const enriched = profiles?.map(p => ({
+        const { data: roles } = await adminSupabase.from("user_roles").select("user_id, role");
+
+        const enriched = profiles?.map((p) => ({
           ...p,
-          email: users?.find(u => u.id === p.user_id)?.email || "unknown",
+          email: users?.find((u) => u.id === p.user_id)?.email || "unknown",
+          roles: (roles ?? []).filter((r) => r.user_id === p.user_id).map((r) => r.role),
         }));
 
         return new Response(JSON.stringify(enriched), {
