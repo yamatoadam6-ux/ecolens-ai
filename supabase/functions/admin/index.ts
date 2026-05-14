@@ -102,6 +102,35 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+
+      if (action === "grant-role") {
+        const { userId: targetUserId, role } = body;
+        if (!["admin", "moderator", "user"].includes(role)) {
+          return new Response(JSON.stringify({ error: "Invalid role" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const { error } = await adminSupabase
+          .from("user_roles")
+          .upsert({ user_id: targetUserId, role }, { onConflict: "user_id,role" });
+        if (error) throw error;
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (action === "revoke-role") {
+        const { userId: targetUserId, role } = body;
+        const { error } = await adminSupabase
+          .from("user_roles")
+          .delete()
+          .eq("user_id", targetUserId)
+          .eq("role", role);
+        if (error) throw error;
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     return new Response(JSON.stringify({ error: "Invalid action" }), {
