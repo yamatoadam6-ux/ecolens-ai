@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Camera, Trophy, BarChart3, Info, Home, Sun, Moon, Globe, Menu, X, MapPin, LogIn, LogOut, Shield } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { NotificationBanner } from "@/components/NotificationBanner";
 
 const navItems = [
   { path: "/", labelKey: "nav.home", icon: Home },
@@ -145,6 +146,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         </AnimatePresence>
       </header>
 
+      <NotificationBanner />
       <main className="flex-1">{children}</main>
 
       <footer className="border-t border-border py-6">
